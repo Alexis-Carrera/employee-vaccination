@@ -2,26 +2,34 @@ package ec.alexis.kruger.employeevaccination.employee;
 
 import ec.alexis.kruger.employeevaccination.employee.model.Employee;
 import ec.alexis.kruger.employeevaccination.employee.model.EmployeeVaccinationInfo;
+import ec.alexis.kruger.employeevaccination.employee.parser.EmployeeRepresentationParser;
 import ec.alexis.kruger.employeevaccination.employee.repository.EmployeeRepository;
 import ec.alexis.kruger.employeevaccination.employee.repository.EmployeeVaccinationInfoRepository;
+import ec.alexis.kruger.employeevaccination.employee.repository.RoleRepository;
 import ec.alexis.kruger.employeevaccination.employee.representation.*;
 import ec.alexis.kruger.employeevaccination.vaccine.model.VaccinationStatus;
 import org.apache.commons.text.RandomStringGenerator;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.HttpStatus;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.userdetails.User;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Service;
 
+import javax.naming.OperationNotSupportedException;
+import javax.persistence.EntityNotFoundException;
 import javax.transaction.Transactional;
 import java.text.DateFormat;
+import java.text.MessageFormat;
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
-import java.util.Set;
+import java.util.*;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 @Transactional
 @Service
@@ -29,11 +37,18 @@ public class EmployeeService implements UserDetailsService {
 
     private final EmployeeRepository employeeRepository;
     private final EmployeeVaccinationInfoRepository employeeVaccinationInfoRepository;
+    private final RoleRepository roleRepository;
+    private final EmployeeRepresentationParser employeeRepresentationParser;
 
     @Autowired
-    public EmployeeService(EmployeeRepository employeeRepository, EmployeeVaccinationInfoRepository employeeVaccinationInfoRepository) {
+    private BCryptPasswordEncoder passwordEncoder;
+
+    @Autowired
+    public EmployeeService(EmployeeRepository employeeRepository, EmployeeVaccinationInfoRepository employeeVaccinationInfoRepository, RoleRepository roleRepository, EmployeeRepresentationParser employeeRepresentationParser) {
         this.employeeRepository = employeeRepository;
         this.employeeVaccinationInfoRepository = employeeVaccinationInfoRepository;
+        this.roleRepository = roleRepository;
+        this.employeeRepresentationParser = employeeRepresentationParser;
     }
 
     public CreateNewEmployeeResponse createNewEmployee(CreateNewEmployeeRequest request) {
@@ -51,7 +66,8 @@ public class EmployeeService implements UserDetailsService {
                 .nationalIdNumber(request.getNationalIdNumber())
                 .email(request.getEmail())
                 .username(username)
-                .password(password)
+                .password(passwordEncoder.encode(password))
+                .roles(roleRepository.find(request.getRole()))
                 .build();
         employeeRepository.save(employee);
         return CreateNewEmployeeResponse.builder()
@@ -110,29 +126,7 @@ public class EmployeeService implements UserDetailsService {
         }
         try {
             Employee employee = employeeRepository.findById(employeeId).get();
-            RetrieveEmployeeResponse responseEmployeeInformation = RetrieveEmployeeResponse.builder()
-                    .employeeId(employee.getId().toString())
-                    .username(employee.getUsername())
-                    .password(employee.getPassword())
-                    .nationalIdNumber(employee.getNationalIdNumber())
-                    .names(employee.getNames())
-                    .lastNames(employee.getLastNames())
-                    .email(employee.getEmail())
-                    .build();
-
-            if(employee.getDateOfBirth() != null){
-                VaccinationInformationRequest vaccinationInformationRequest = VaccinationInformationRequest.builder()
-                        .vaccineTypeId(employee.getEmployeeVaccinationInfo().getVaccineTypeId())
-                        .dosageNumberApplied(employee.getEmployeeVaccinationInfo().getDosageNumberApplied())
-                        .vaccinationDate(employee.getEmployeeVaccinationInfo().getVaccinationDate().toString())
-                        .build();
-                responseEmployeeInformation.setDateOfBirth(employee.getDateOfBirth().toString());
-                responseEmployeeInformation.setAddress(employee.getAddress());
-                responseEmployeeInformation.setMobilePhoneNumber(employee.getMobilePhoneNumber());
-                responseEmployeeInformation.setVaccineStatus(employee.getVaccinationStatus().getDescription());
-                responseEmployeeInformation.setEmployeeVaccinationInfo(vaccinationInformationRequest);
-            }
-            return responseEmployeeInformation;
+            return employeeRepresentationParser.transformEmployeeToResponse(employee);
         } catch (Exception e) {
             throw new RuntimeException("API ERROR", e);
         }
@@ -157,8 +151,76 @@ public class EmployeeService implements UserDetailsService {
         }
     }
 
-    public String generateRandomSpecialCharacters(int length) {
-        RandomStringGenerator pwdGenerator = new RandomStringGenerator.Builder().withinRange(64,122)
+    public List<RetrieveEmployeeResponse> retrieveEmployeeList(Map<String, String> parameters) {
+        if (parameters.isEmpty()) {
+            return employeeRepresentationParser.transformListEmployeeResponseToEmployeeResponseList(findAllEmployee());
+        }
+        List<String> allowedParameters = new ArrayList<>(Arrays.asList("vaccinationStatus", "vaccineTypeId", "rangeInit","rangeFinal"));
+        if (parameters.keySet().stream()
+                .filter(allowedParameters::contains)
+                .noneMatch(e -> true)) {
+            throw new RuntimeException("WRONG PARAMS", new Exception());
+        }
+        String parameterValue;
+        List<Employee> results = new ArrayList<>();
+        parameterValue = getStringValueFromStream("vaccinationStatus", parameters.entrySet().stream());
+        if (!parameterValue.isEmpty()) {
+            String finalParameterValue = parameterValue;
+            VaccinationStatus vaccinationStatus = VaccinationStatus.valueOfDescription(parameterValue);
+            results.addAll(retrieveEmployeeByVaccinationStatus(vaccinationStatus).orElseThrow(() ->
+                    new EntityNotFoundException(MessageFormat.format("Vaccination Status not found: {0}", finalParameterValue))
+            ));
+        }
+        parameterValue = getStringValueFromStream("vaccineTypeId", parameters.entrySet().stream());
+        if (!parameterValue.isEmpty()) {
+            results.addAll(retrieveEmployeeByVaccineId(parameterValue));
+        }
+        parameterValue = getStringValueFromStream("rangeInit", parameters.entrySet().stream());
+        String parameterRangeFinal = getStringValueFromStream("rangeFinal", parameters.entrySet().stream());
+        if (!parameterValue.isEmpty() || !parameterRangeFinal.isEmpty()) {
+            results.addAll(retrieveEmployeeByDateBetween(parameterValue,parameterRangeFinal));
+        }
+        return employeeRepresentationParser.transformListEmployeeResponseToEmployeeResponseList(results);
+    }
+
+    private Optional<List<Employee>>retrieveEmployeeByVaccinationStatus(VaccinationStatus vaccinationStatus) {
+        return employeeRepository.findAllByVaccinationStatus(vaccinationStatus);
+    }
+
+    private List<Employee>retrieveEmployeeByVaccineId(String parameterValue) {
+        List<EmployeeVaccinationInfo> employeeVaccinationInfoList = employeeVaccinationInfoRepository.findAllByVaccineTypeId(Long.parseLong(parameterValue)).get();
+        return employeeVaccinationInfoList.stream()
+                .map(EmployeeVaccinationInfo::getEmployee)
+                .collect(Collectors.toList());
+    }
+
+    private List<Employee>retrieveEmployeeByDateBetween(String vaccinationDateInit,String vaccinationDateFinal) {
+        try{
+            DateFormat df = new SimpleDateFormat("dd/MM/yyyy");
+            Date vaccinationDateI =  df.parse(vaccinationDateInit);
+            Date vaccinationDateF =  df.parse(vaccinationDateFinal);
+            List<EmployeeVaccinationInfo> employeeVaccinationInfoList = employeeVaccinationInfoRepository.findAllByVaccinationDateBetween(vaccinationDateI,vaccinationDateF).get();
+            return employeeVaccinationInfoList.stream()
+                    .map(EmployeeVaccinationInfo::getEmployee)
+                    .collect(Collectors.toList());
+        }
+        catch (Exception e){
+            throw new RuntimeException("Range NOT FOUND", e);
+        }
+    }
+
+    private List<Employee> findAllEmployee() {
+        return employeeRepository.findAll();
+    }
+
+    private String getStringValueFromStream(String key, Stream<Map.Entry<String, String>> stream) {
+        return stream.filter(element -> key.equalsIgnoreCase(element.getKey()))
+                .map(Map.Entry::getValue)
+                .collect(Collectors.joining());
+    }
+
+    private String generateRandomSpecialCharacters(int length) {
+        RandomStringGenerator pwdGenerator = new RandomStringGenerator.Builder().withinRange(65,90)
                 .build();
         return pwdGenerator.generate(length);
     }

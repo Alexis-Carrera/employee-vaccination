@@ -18,9 +18,6 @@ public class RetrieveEmployeeResponse {
     @JsonProperty("username")
     private String username;
 
-    @JsonProperty("password")
-    private String password;
-
     @JsonProperty("nationalIdNumber")
     private String nationalIdNumber;
 

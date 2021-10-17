@@ -7,6 +7,9 @@ import ec.alexis.kruger.employeevaccination.employee.representation.UpdateEmploy
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.List;
+import java.util.Map;
+
 @RestController
 public class EmployeeController implements EmployeeApi{
 
@@ -35,5 +38,10 @@ public class EmployeeController implements EmployeeApi{
     @Override
     public String deleteEmployeeInformation(long employeeId) {
         return employeeService.deleteEmployeeInformation(employeeId);
+    }
+
+    @Override
+    public List<RetrieveEmployeeResponse> retrieveEmployeeList(Map<String, String> allParams) {
+        return employeeService.retrieveEmployeeList(allParams);
     }
 }

@@ -4,6 +4,7 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.*;
 import org.springframework.validation.annotation.Validated;
 import javax.validation.constraints.NotBlank;
+import java.util.List;
 
 @Data
 @EqualsAndHashCode
@@ -28,5 +29,9 @@ public class CreateNewEmployeeRequest {
     @JsonProperty("email")
     @NotBlank(message = "email is mandatory")
     private String email;
+
+    @JsonProperty("role")
+    @NotBlank(message = "role is mandatory")
+    private List<String> role;
 
 }

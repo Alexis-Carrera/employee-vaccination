@@ -4,10 +4,13 @@ import ec.alexis.kruger.employeevaccination.employee.representation.CreateNewEmp
 import ec.alexis.kruger.employeevaccination.employee.representation.CreateNewEmployeeResponse;
 import ec.alexis.kruger.employeevaccination.employee.representation.RetrieveEmployeeResponse;
 import ec.alexis.kruger.employeevaccination.employee.representation.UpdateEmployeeRequest;
+import io.swagger.annotations.ApiParam;
 import org.springframework.security.access.annotation.Secured;
 import org.springframework.web.bind.annotation.*;
 
 import javax.validation.Valid;
+import java.util.List;
+import java.util.Map;
 
 public interface EmployeeApi {
 
@@ -37,5 +40,12 @@ public interface EmployeeApi {
             produces = {"application/json"},
             consumes = {"application/json"})
     String deleteEmployeeInformation(@PathVariable("id") long employeeId);
+
+    @Secured({ ROLE_ADMIN})
+    @GetMapping(value = "/employeeslist",
+            produces = {"application/json"},
+            consumes = {"application/json"})
+    List<RetrieveEmployeeResponse> retrieveEmployeeList(
+            @ApiParam(value = "advanced search params") @Valid @RequestParam() Map<String, String> allParams);
 
 }
