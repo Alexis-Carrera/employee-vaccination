@@ -8,14 +8,24 @@ import ec.alexis.kruger.employeevaccination.employee.representation.*;
 import ec.alexis.kruger.employeevaccination.vaccine.model.VaccinationStatus;
 import org.apache.commons.text.RandomStringGenerator;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.security.core.GrantedAuthority;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import org.springframework.security.core.userdetails.User;
+import org.springframework.security.core.userdetails.UserDetails;
+import org.springframework.security.core.userdetails.UserDetailsService;
+import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.stereotype.Service;
 
+import javax.transaction.Transactional;
 import java.text.DateFormat;
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
+import java.util.Set;
+import java.util.stream.Collectors;
 
+@Transactional
 @Service
-public class EmployeeService {
+public class EmployeeService implements UserDetailsService {
 
     private final EmployeeRepository employeeRepository;
     private final EmployeeVaccinationInfoRepository employeeVaccinationInfoRepository;
@@ -128,6 +138,25 @@ public class EmployeeService {
         }
     }
 
+    public String deleteEmployeeInformation(long employeeId){
+        if(!employeeRepository.findById(employeeId).isPresent()){
+            throw new RuntimeException("Employee not Exists", new Exception());
+        }
+        try {
+            Employee employee = employeeRepository.findById(employeeId).get();
+            if(employee.getVaccinationStatus() != VaccinationStatus.NO_VACCINATED){
+                if(employeeVaccinationInfoRepository.findByEmployeeId(employeeId).isPresent()){
+                    EmployeeVaccinationInfo employeeVaccinationInfo = employeeVaccinationInfoRepository.findByEmployeeId(employeeId).get();
+                    employeeVaccinationInfoRepository.delete(employeeVaccinationInfo);
+                }
+            }
+            employeeRepository.delete(employee);
+            return "Employee deleted";
+        } catch (Exception e) {
+            throw new RuntimeException("API ERROR", e);
+        }
+    }
+
     public String generateRandomSpecialCharacters(int length) {
         RandomStringGenerator pwdGenerator = new RandomStringGenerator.Builder().withinRange(64,122)
                 .build();
@@ -165,4 +194,14 @@ public class EmployeeService {
         return false;
     }
 
+    @Override
+    public UserDetails loadUserByUsername(String username) throws UsernameNotFoundException {
+        Employee employee = employeeRepository.findByUsername(username);
+        if (employee == null)
+            throw new UsernameNotFoundException("Invalid username or password.");
+        Set<GrantedAuthority> grantedAuthorities = employee.getRoles().stream()
+                .map(role -> new SimpleGrantedAuthority("ROLE_" + role.getRoleType().toString().toUpperCase()))
+                .collect(Collectors.toSet());
+        return new User(employee.getUsername(), employee.getPassword(), grantedAuthorities);
+    }
 }

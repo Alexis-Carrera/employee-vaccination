@@ -9,6 +9,7 @@ import javax.validation.constraints.NotNull;
 import javax.validation.constraints.Pattern;
 import javax.validation.constraints.Size;
 import java.util.Date;
+import java.util.Set;
 
 @Builder
 @Data
@@ -58,5 +59,9 @@ public class Employee extends AuditModel {
     @OneToOne(cascade = CascadeType.ALL)
     @JoinColumn(name = "employee_vaccination_info_id", referencedColumnName = "id")
     private EmployeeVaccinationInfo employeeVaccinationInfo;
+
+    @ManyToMany(fetch = FetchType.EAGER)
+    @JoinTable(joinColumns = @JoinColumn(name = "id"), inverseJoinColumns = @JoinColumn(name = "roleId"))
+    private Set<Role> roles;
 
 }

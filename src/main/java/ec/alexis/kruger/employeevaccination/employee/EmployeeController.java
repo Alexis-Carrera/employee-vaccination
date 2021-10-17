@@ -31,4 +31,9 @@ public class EmployeeController implements EmployeeApi{
     public RetrieveEmployeeResponse retrieveEmployeeInformation(long employeeId) {
         return employeeService.retrieveEmployeeInformation(employeeId);
     }
+
+    @Override
+    public String deleteEmployeeInformation(long employeeId) {
+        return employeeService.deleteEmployeeInformation(employeeId);
+    }
 }
